@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo clippy --locked --all-targets --features cloud -- -D warnings
+      - run: cargo test --locked
+      - run: cargo test --locked --features cloud
+
+  # Runs the #[ignore]d tests that need PostgreSQL and Redis, the same way
+  # scripts/test-model-management.sh does locally.
+  server-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: openvair_test
+          POSTGRES_PASSWORD: openvair_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U openvair_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://openvair_test:openvair_test@127.0.0.1:5432/postgres
+      MASTER_KEY: ci-integration-test-only-master-key
+      REDIS_URL: redis://127.0.0.1:6379/
+      TEST_REDIS_URL: redis://127.0.0.1:6379/
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Skipped:
+      # - calibration_shapes is a manual tool that needs CALIBRATION=<recorded counts>.
+      # - public_check_reports_without_keeping_the_key and the unknown_cost tests
+      #   wait on background work with a 3s timeout and are flaky on shared runners.
+      - name: Ignored DB/Redis tests
+        run: >-
+          cargo test --locked -- --ignored --test-threads=1
+          --skip calibration_shapes
+          --skip public_check_reports_without_keeping_the_key
+          --skip unknown_cost
+      - name: Ignored DB/Redis tests (cloud)
+        run: >-
+          cargo test --locked --features cloud -- --ignored --test-threads=1
+          --skip calibration_shapes
+          --skip public_check_reports_without_keeping_the_key
+          --skip unknown_cost
+
+  rust-deps:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest: [Cargo.toml, client/Cargo.toml]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: ${{ matrix.manifest }}
+          # advisories, licenses, bans and sources; config in deny.toml next to the manifest.
+          command: check
+
+  web:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [community, cloud]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web audit --audit-level=high
+        if: matrix.edition == 'community'
+      - run: npm --prefix web run build
+        env:
+          VITE_EDITION: ${{ matrix.edition }}
+
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: node scripts/check-doc-translations.mjs
+      - run: npm --prefix site ci
+      - run: npm --prefix site audit --audit-level=high
+      - run: npm --prefix site run build
+
+  desktop-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm --prefix client audit --audit-level=high
+
+  desktop-core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked -p vair-core --all-targets -- -D warnings
+      - run: cargo test --locked -p vair-core

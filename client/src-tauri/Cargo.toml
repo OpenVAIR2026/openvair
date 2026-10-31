@@ -1,0 +1,27 @@
+[package]
+name = "openvair-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "openvair_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+arboard = { version = "3", default-features = false }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "7"
+gethostname = "1.1"
+open = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["sync"] }
+url = "2"
+openvair-core = { path = "../core" }

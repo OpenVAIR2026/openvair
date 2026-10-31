@@ -1,0 +1,9 @@
+/target/
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/web/playwright-report/
+.env
+.DS_Store
+/site/node_modules/
+/site/dist/

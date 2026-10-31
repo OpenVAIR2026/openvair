@@ -1,0 +1,33 @@
+OpenVAIR
+Copyright (c) 2026 The OpenVAIR contributors
+
+Licensing of this repository
+============================
+
+Unless a file or directory below says otherwise, everything in this
+repository (the server in src/, the web console in web/, migrations/,
+scripts/, docs/ and the build files) is licensed under the GNU Affero
+General Public License, version 3 only (SPDX: AGPL-3.0-only). See LICENSE.
+
+Exceptions:
+
+- client/ (the VAIR desktop client and its vair-core library) is licensed
+  under the Apache License, version 2.0 (SPDX: Apache-2.0). See
+  client/LICENSE.
+
+- src/ctok/ is a port of the token-counting path of ctok
+  (https://github.com/sanderland/ctok) at commit
+  8c43ffd3c7be467622a540f025516e49ef78d8b1, including its vocabulary data
+  and test data. It is licensed under the MIT License (SPDX: MIT),
+  Copyright (c) 2026 Sander Land. See src/ctok/LICENSE.
+
+REUSE.toml records the same path-to-license mapping in machine-readable form.
+
+Third-party dependencies
+========================
+
+Rust crates and npm packages used by OpenVAIR keep their own licenses. The
+exact versions are pinned in Cargo.lock, client/Cargo.lock,
+web/package-lock.json and client/package-lock.json. The licenses accepted
+for Rust dependencies are listed in deny.toml and client/deny.toml and are
+checked in CI with cargo-deny.

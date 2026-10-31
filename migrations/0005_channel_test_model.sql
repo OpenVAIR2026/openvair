@@ -1,0 +1,2 @@
+ALTER TABLE channels
+    ADD COLUMN IF NOT EXISTS test_model TEXT;

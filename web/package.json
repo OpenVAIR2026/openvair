@@ -1,0 +1,54 @@
+{
+  "name": "openvair-console",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test:usage": "playwright test --config playwright.usage.config.ts --reporter=line",
+    "test:overview": "playwright test --config playwright.overview.config.ts --reporter=line",
+    "test:pricing": "playwright test --config playwright.pricing.config.ts --reporter=line",
+    "test:monitoring": "playwright test --config=playwright.monitoring.config.ts --reporter=line",
+    "test:settings": "playwright test --config playwright.settings.config.ts --reporter=line",
+    "test:baselines": "playwright test --config playwright.baselines.config.ts --reporter=line",
+    "test:public-verify": "playwright test --config playwright.public-verify.config.ts --reporter=line",
+    "test:keys": "playwright test --config playwright.keys.config.ts --reporter=line"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.4",
+    "@ant-design/pro-components": "^2.8.10",
+    "@hookform/resolvers": "^5.9.1",
+    "@tanstack/react-query": "^5.105.0",
+    "@tanstack/react-table": "^8.21.3",
+    "antd": "^5.29.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cn": "^0.4.0",
+    "lucide-react": "^1.49.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.89.0",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.4",
+    "recharts": "^3.10.1",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.7.0",
+    "vite": "^8.3.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "path-to-regexp": "^8.4.2"
+  }
+}

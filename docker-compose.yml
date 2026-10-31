@@ -1,0 +1,109 @@
+services:
+  # Creates the database password and MASTER_KEY on first start and keeps them
+  # in the secrets volume. Values already set in .env (installs from before
+  # this step existed) are copied in once; after that the saved files win.
+  secrets:
+    image: postgres:16-alpine
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        umask 077
+        cd /secrets
+        seed() {
+          if [ ! -s "$$1" ]; then
+            if [ -n "$$2" ]; then
+              printf %s "$$2" > "$$1"
+            else
+              od -An -tx1 -N32 /dev/urandom | tr -d ' \n' > "$$1"
+              echo "generated $$1"
+            fi
+          elif [ -n "$$2" ] && [ "$$(cat "$$1")" != "$$2" ]; then
+            echo "warning: $$3 in .env differs from the saved value; the saved value is used" >&2
+          fi
+        }
+        seed postgres_password "$${POSTGRES_PASSWORD:-}" POSTGRES_PASSWORD
+        seed master_key "$${MASTER_KEY:-}" MASTER_KEY
+        rm -f database_url
+        printf 'postgres://openvair:%s@postgres:5432/openvair' "$$(cat postgres_password)" > database_url
+        chmod 0444 postgres_password master_key database_url
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      MASTER_KEY: ${MASTER_KEY:-}
+    volumes:
+      - secrets:/secrets
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openvair
+      POSTGRES_PASSWORD_FILE: /run/openvair/postgres_password
+      POSTGRES_DB: openvair
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - secrets:/run/openvair:ro
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openvair -d openvair"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  openvair:
+    image: ${OPENVAIR_IMAGE:-ghcr.io/openvair2026/openvair:latest}
+    build:
+      context: .
+      args:
+        EDITION: ${EDITION:-community}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        USE_RSPROXY: ${USE_RSPROXY:-false}
+    environment:
+      APP_ADDR: 0.0.0.0:8080
+      DATABASE_URL_FILE: /run/openvair/database_url
+      REDIS_URL: redis://redis:6379/
+      MASTER_KEY_FILE: /run/openvair/master_key
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      ALLOW_PRIVATE_UPSTREAMS: ${ALLOW_PRIVATE_UPSTREAMS:-true}
+      # Same as the built-in default; spelled out so an empty value is never passed.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
+    ports:
+      - "${OPENVAIR_BIND:-127.0.0.1}:${OPENVAIR_PORT:-8080}:8080"
+    volumes:
+      - secrets:/run/openvair:ro
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  secrets:
+  postgres_data:
+  redis_data:

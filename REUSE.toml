@@ -1,0 +1,19 @@
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The OpenVAIR contributors"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
+[[annotations]]
+path = "client/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 The OpenVAIR contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "src/ctok/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Sander Land"
+SPDX-License-Identifier = "MIT"

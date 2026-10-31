@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#173238"/>
+      <stop offset="1" stop-color="#0b171c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.82" r="0.6">
+      <stop offset="0" stop-color="#78d9d0" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#78d9d0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark" gradientUnits="userSpaceOnUse" x1="4" y1="4" x2="20" y2="20">
+      <stop offset="0" stop-color="#d6fff8"/>
+      <stop offset="0.55" stop-color="#78d9d0"/>
+      <stop offset="1" stop-color="#3aa8d8"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#glow)"/>
+  <rect x="66" y="66" width="892" height="892" rx="198" fill="none" stroke="#78d9d0" stroke-opacity="0.38" stroke-width="4"/>
+  <g transform="translate(512 512) scale(30) translate(-12 -11.5)">
+    <path d="M12 6.5V18.5" stroke="url(#mark)" stroke-opacity=".45" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+    <path d="M4.5 5L12 18.5L19.5 5" stroke="url(#mark)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <circle cx="4.5" cy="5" r="1.7" fill="#d6fff8"/>
+    <circle cx="12" cy="5" r="1.4" fill="#78d9d0" fill-opacity=".7"/>
+    <circle cx="19.5" cy="5" r="1.7" fill="#5cc4dc"/>
+    <circle cx="12" cy="18.5" r="2.3" fill="#ecfffb"/>
+  </g>
+</svg>
