@@ -19,7 +19,7 @@ import { CLOUD } from '../lib/edition'
 const modelNames = (text: string) => [...new Set(splitModelTokens(text))].sort()
 // The server accepts a check receipt for 15 minutes; leave a margin for the save request.
 const CHECK_TTL_MS = 14 * 60 * 1000
-const defaults: ChannelValues = { name: '', provider: 'custom', protocol: 'openai', base_url: '', secret: '', models: '', model_mode: 'allowlist', test_model: '', priority: '100', mappings: [] }
+const defaults: ChannelValues = { name: '', provider: 'custom', protocol: 'openai', base_url: '', secret: '', models: '', model_mode: 'allowlist', test_model: '', priority: '100', concurrency_limit: '', mappings: [] }
 type Connection = { channel_id?: string; protocol: Protocol; base_url: string; secret?: string }
 const protocolOptions: { value: Protocol; label: string }[] = [{ value: 'openai', label: 'OpenAI 兼容' }, { value: 'anthropic', label: 'Anthropic 兼容' }, { value: 'gemini', label: 'Gemini 兼容' }]
 type CheckResult = { healthy: boolean; rate_limited?: boolean; message: string; check_receipt: string | null }
@@ -37,7 +37,7 @@ function connection(values: ChannelValues, id?: string): Connection {
 }
 function initialValues(channel?: Channel): ChannelValues {
   // Only upstream channels reach this editor; VAIR key channels ('any') have their own.
-  return channel ? { name: channel.name, provider: channel.provider ?? 'custom', protocol: channel.protocol === 'any' ? 'openai' : channel.protocol, base_url: channel.base_url, secret: '', models: channel.models.join('\n'), model_mode: channel.model_mode, test_model: channel.test_model ?? '', priority: String(channel.priority), mappings: Object.entries(channel.model_mapping ?? {}).map(([public_model, upstream_model]) => ({ public_model, upstream_model })) } : defaults
+  return channel ? { name: channel.name, provider: channel.provider ?? 'custom', protocol: channel.protocol === 'any' ? 'openai' : channel.protocol, base_url: channel.base_url, secret: '', models: channel.models.join('\n'), model_mode: channel.model_mode, test_model: channel.test_model ?? '', priority: String(channel.priority), concurrency_limit: channel.concurrency_limit ? String(channel.concurrency_limit) : '', mappings: Object.entries(channel.model_mapping ?? {}).map(([public_model, upstream_model]) => ({ public_model, upstream_model })) } : defaults
 }
 
 export function ChannelEditor({ channel, onClose, onSaved }: { channel?: Channel; onClose: () => void; onSaved: () => Promise<void> }) {
@@ -95,7 +95,7 @@ export function ChannelEditor({ channel, onClose, onSaved }: { channel?: Channel
   const suggestions = useModelSuggestions(discovered, values.protocol)
   const save = useMutation({
     mutationFn: ({ values, receipt }: { values: ChannelValues; receipt?: string | null }) => {
-      const payload = { name: values.name, base_url: values.base_url, priority: Number(values.priority), models: modelNames(values.models), model_mode: values.model_mode, test_model: values.test_model || null, ...(values.secret ? { secret: values.secret } : {}), ...(receipt ? { check_receipt: receipt } : {}) }
+      const payload = { name: values.name, base_url: values.base_url, priority: Number(values.priority), concurrency_limit: values.concurrency_limit ? Number(values.concurrency_limit) : null, models: modelNames(values.models), model_mode: values.model_mode, test_model: values.test_model || null, ...(values.secret ? { secret: values.secret } : {}), ...(receipt ? { check_receipt: receipt } : {}) }
       return channel
         ? api(`/channels/${channel.id}`, jsonBody({ ...payload, model_mapping: Object.fromEntries(values.mappings.map(item => [item.public_model, item.upstream_model])) }, 'PATCH'))
         : api('/channels', jsonBody({ ...payload, protocol: values.protocol, provider: values.provider === 'custom' ? null : values.provider }))
@@ -149,6 +149,7 @@ export function ChannelEditor({ channel, onClose, onSaved }: { channel?: Channel
           <Field label="Base URL" error={errors.base_url?.message} hint={channel?.provider ? `创建自厂商预设：${providers.find(item => item.id === channel.provider)?.label ?? channel.provider}` : undefined}>{id => <Input id={id} autoComplete="url" placeholder="https://api.example.com/v1" {...form.register('base_url')} />}</Field>
           <Field label="上游 API Key" error={errors.secret?.message} help={channel ? '留空使用已保存的 Key；填写新值后可直接测试。' : undefined}>{id => <Input id={id} type="password" autoComplete="new-password" spellCheck={false} maxLength={4096} {...form.register('secret')} />}</Field>
           <Field label="渠道优先级" error={errors.priority?.message} help="数值越小越优先。">{id => <Input id={id} type="number" min="0" {...form.register('priority')} />}</Field>
+          <Field label="并发上限（选填）" error={errors.concurrency_limit?.message} help="同时经此渠道进行的请求数，含流式响应。已满时改用下一个渠道；留空不限制。">{id => <Input id={id} type="number" min="1" max="10000" placeholder="不限制" {...form.register('concurrency_limit')} />}</Field>
           <Field label="模型规则" error={passthrough ? undefined : errors.models?.message} help={passthrough ? undefined : '支持具体名称或前缀，如 gpt-*。'} action={<div className="flex items-center gap-3">{!passthrough && fetchModelsAction}<label className="flex items-center gap-2 text-sm"><Checkbox checked={passthrough} disabled={busy} onCheckedChange={checked => form.setValue('model_mode', checked === true ? 'passthrough' : 'allowlist', { shouldDirty: true, shouldValidate: true })} />全部转发</label></div>}>{id => passthrough ? <p id={id} className="rounded-md border border-dashed border-border px-3 py-2.5 text-sm text-muted-foreground">请求的模型原样转发到此渠道，不按规则过滤，是否支持由上游决定。</p> : <ModelTagInput id={id} values={rules} suggestions={suggestions} onChange={models => form.setValue('models', models.join('\n'), { shouldDirty: true, shouldValidate: true })} disabled={busy} placeholder="输入模型名或前缀规则" />}</Field>
           {!passthrough && fetchedModelsStatus}
           <Field label={testModelRequired ? '测试模型（必填）' : '测试模型（选填）'} error={errors.test_model?.message} help={testModelRequired ? '全部转发或仅前缀规则时，需要指定具体模型进行测试。' : '留空使用按名称排序后的第一个具体模型；配置了映射时使用其上游名称。'} action={passthrough ? fetchModelsAction : undefined}>{id => <Controller name="test_model" control={form.control} render={({ field }) => <ModelSelect id={id} name="test_model" value={field.value} onChange={field.onChange} models={rules.map(model => mapping[model] || model).concat(suggestions.map(model => model.value), values.mappings.map(item => item.upstream_model))} invalid={!!errors.test_model} disabled={busy} />} />}</Field>

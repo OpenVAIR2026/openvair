@@ -94,6 +94,8 @@ export interface Channel {
   base_url: string
   enabled: boolean
   priority: number
+  /** Requests in flight through the channel at once; null means no cap. */
+  concurrency_limit: number | null
   health_status: 'healthy' | 'unhealthy' | 'rate_limited' | 'model_unavailable' | 'unknown' | 'needs_test_model'
   health_error: string | null
   health_error_kind: HealthErrorKind | null
@@ -113,6 +115,13 @@ export interface Channel {
   /** Vendor preset the channel was created from; null for custom channels. */
   provider: string | null
   source: ChannelSource | null
+}
+
+/** Requests in flight now through a capped channel. */
+export interface ChannelConcurrency {
+  channel_id: string
+  in_use: number
+  limit: number
 }
 
 /** Vendor preset that fills a new channel's protocol and base URL. */
@@ -405,7 +414,7 @@ export interface UsageEvent {
 
 export type UsageRange = '24h' | '7d' | '30d' | 'all'
 
-export type RequestOutcome = 'pending' | 'success' | 'http_error' | 'timeout' | 'first_token_timeout' | 'connection_error' | 'stream_error' | 'client_disconnected' | 'unavailable'
+export type RequestOutcome = 'pending' | 'success' | 'http_error' | 'timeout' | 'first_token_timeout' | 'connection_error' | 'stream_error' | 'client_disconnected' | 'unavailable' | 'channel_full'
 export interface RequestAttempt {
   channel_id: string
   channel_name: string | null

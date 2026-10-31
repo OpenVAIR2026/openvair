@@ -23,7 +23,7 @@ export interface KeyRequestDetail {
 }
 
 const ms = (value: number | null) => value == null ? '未采集' : value >= 1000 ? `${(value / 1000).toFixed(3)} s` : `${value} ms`
-const outcomes: Record<RequestOutcome, string> = { pending: '响应中', success: '已完成', http_error: '请求失败', timeout: '请求超时', first_token_timeout: '首字超时，已切换', connection_error: '连接失败', stream_error: '响应中断', client_disconnected: '客户端断开', unavailable: '服务不可用' }
+const outcomes: Record<RequestOutcome, string> = { pending: '响应中', success: '已完成', http_error: '请求失败', timeout: '请求超时', first_token_timeout: '首字超时，已切换', connection_error: '连接失败', stream_error: '响应中断', client_disconnected: '客户端断开', unavailable: '服务不可用', channel_full: '渠道已满' }
 
 export function KeyRequestDetails({ requestId, cacheId, load, onClose, returnFocus }: { requestId: string | null; cacheId: string; load: (id: string, signal: AbortSignal) => Promise<KeyRequestDetail>; onClose: () => void; returnFocus: () => void }) {
   const query = useQuery({ queryKey: ['key-holder', 'request-detail', cacheId, requestId], enabled: !!requestId, retry: false,

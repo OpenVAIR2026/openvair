@@ -21,6 +21,9 @@ pub enum Outcome {
     StreamError,
     ClientDisconnected,
     Unavailable,
+    /// The channel's concurrency limit was reached: passed over, or waited
+    /// for until the response header timeout when it was the last one.
+    ChannelFull,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -107,6 +110,17 @@ impl Timings {
             attempt.status = Some(status);
         }
         self.end_attempt(Outcome::Unavailable);
+    }
+
+    pub fn full(&mut self, channel: Uuid, hops: Vec<(Uuid, Uuid)>, since: Instant) {
+        self.begin(channel, hops);
+        if let Some((attempt, _)) = self.attempts.last_mut() {
+            attempt.started_ms = since
+                .duration_since(self.started)
+                .as_millis()
+                .min(i32::MAX as u128) as i32;
+        }
+        self.end_attempt(Outcome::ChannelFull);
     }
 
     pub fn first_output(&mut self, total_ms: i32) {

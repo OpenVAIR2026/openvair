@@ -331,6 +331,8 @@ struct ChannelView {
     base_url: String,
     enabled: bool,
     priority: i32,
+    /// Requests in flight through the channel at once; `None` means no cap.
+    concurrency_limit: Option<i32>,
     health_status: String,
     health_error: Option<String>,
     health_error_kind: Option<String>,
@@ -497,6 +499,7 @@ struct CreateChannelInput {
     secret: String,
     check_receipt: Option<String>,
     provider: Option<String>,
+    concurrency_limit: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -535,6 +538,8 @@ struct UpdateChannelInput {
     enabled: Option<bool>,
     secret: Option<String>,
     check_receipt: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    concurrency_limit: Option<Option<i32>>,
 }
 
 fn deserialize_nullable<'de, D, T>(
@@ -913,6 +918,7 @@ async fn main() -> Result<()> {
             "/channels/{id}",
             delete(delete_channel).patch(update_channel),
         )
+        .route("/channels/concurrency", get(channel_concurrency))
         .route("/channels/preview-models", post(preview_channel_models))
         .route("/channels/preview-check", post(preview_channel_check))
         .route("/channels/{id}/check", post(check_channel))
@@ -1914,12 +1920,56 @@ async fn delete_model_catalog(
     Ok(StatusCode::NO_CONTENT)
 }
 
+const CHANNEL_CONCURRENCY_RANGE: std::ops::RangeInclusive<i32> = 1..=10000;
+
+fn validate_channel_concurrency(limit: i32) -> Result<()> {
+    if CHANNEL_CONCURRENCY_RANGE.contains(&limit) {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!(
+        "渠道并发上限需在 {} 到 {} 之间",
+        CHANNEL_CONCURRENCY_RANGE.start(),
+        CHANNEL_CONCURRENCY_RANGE.end()
+    )))
+}
+
+#[derive(Serialize)]
+struct ChannelConcurrency {
+    channel_id: Uuid,
+    in_use: usize,
+    limit: i32,
+}
+
+/// Requests in flight now through each of the account's capped channels,
+/// including those relayed in from other accounts' keys.
+async fn channel_concurrency(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ChannelConcurrency>>> {
+    let user = auth::current_user(&state, &headers).await?;
+    let rows: Vec<(Uuid, i32)> = sqlx::query_as(
+        "SELECT id,concurrency_limit FROM channels WHERE account_id=$1 AND concurrency_limit IS NOT NULL",
+    )
+    .bind(user.account_id)
+    .fetch_all(&state.db)
+    .await?;
+    let mut result = Vec::with_capacity(rows.len());
+    for (channel_id, limit) in rows {
+        result.push(ChannelConcurrency {
+            channel_id,
+            in_use: state.in_use(channel_id).await,
+            limit,
+        });
+    }
+    Ok(Json(result))
+}
+
 async fn list_channels(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ChannelView>>> {
     let user = auth::current_user(&state, &headers).await?;
-    let mut rows = sqlx::query_as::<_, ChannelView>(&format!("SELECT c.id,c.name,c.protocol,c.base_url,c.enabled,c.priority,CASE WHEN h.status='unhealthy' THEN 'unhealthy' ELSE COALESCE(h.last_observation,h.status,'unknown') END AS health_status,h.last_error AS health_error,h.last_error_kind AS health_error_kind,h.check_note AS health_note,h.checked_at AS health_checked_at,c.test_model,c.models,COALESCE(legacy.mapping,'{{}}'::jsonb) || c.model_mapping AS model_mapping,c.model_mode,c.discovered_models,c.models_synced_at,0::int AS model_count,c.created_at,c.kind,c.provider,c.source_key_id,
+    let mut rows = sqlx::query_as::<_, ChannelView>(&format!("SELECT c.id,c.name,c.protocol,c.base_url,c.enabled,c.priority,c.concurrency_limit,CASE WHEN h.status='unhealthy' THEN 'unhealthy' ELSE COALESCE(h.last_observation,h.status,'unknown') END AS health_status,h.last_error AS health_error,h.last_error_kind AS health_error_kind,h.check_note AS health_note,h.checked_at AS health_checked_at,c.test_model,c.models,COALESCE(legacy.mapping,'{{}}'::jsonb) || c.model_mapping AS model_mapping,c.model_mode,c.discovered_models,c.models_synced_at,0::int AS model_count,c.created_at,c.kind,c.provider,c.source_key_id,
          CASE WHEN c.kind='vair_key' THEN COALESCE(({SOURCE_KEY_VIEW} WHERE v.id=c.source_key_id), '{{\"status\":\"revoked\"}}'::jsonb) END AS source
          FROM channels c LEFT JOIN channel_health h ON h.channel_id=c.id LEFT JOIN LATERAL (SELECT jsonb_object_agg(public_model,upstream_model) AS mapping FROM (SELECT DISTINCT ON (public_model) public_model,upstream_model FROM model_routes WHERE channel_id=c.id AND account_id=$1 AND protocol=c.protocol AND enabled=true ORDER BY public_model,priority,id) selected) legacy ON true WHERE c.account_id=$1 GROUP BY c.id,c.test_model,h.status,h.last_observation,h.last_error,h.last_error_kind,h.check_note,h.checked_at,legacy.mapping ORDER BY c.priority,c.created_at"))
         .bind(user.account_id).fetch_all(&state.db).await?;
@@ -2393,6 +2443,7 @@ async fn update_channel_models(
             enabled: None,
             secret: None,
             check_receipt: None,
+            concurrency_limit: None,
         }),
     )
     .await
@@ -2412,6 +2463,7 @@ async fn update_channel(
         || input.model_mode.is_some()
         || input.secret.is_some()
         || input.check_receipt.is_some()
+        || input.concurrency_limit.is_some()
     {
         vair_key_channels::ensure_upstream_channel(&state.db, user.account_id, channel_id).await?;
     }
@@ -2465,6 +2517,9 @@ async fn update_channel(
     if input.priority.is_some_and(|priority| priority < 0) {
         return Err(AppError::BadRequest("priority must be non-negative".into()));
     }
+    if let Some(Some(limit)) = input.concurrency_limit {
+        validate_channel_concurrency(limit)?;
+    }
     let mapping = input
         .model_mapping
         .map(normalize_model_mapping)
@@ -2490,7 +2545,7 @@ async fn update_channel(
         || mapping
             .as_ref()
             .is_some_and(|value| value != &current_mapping);
-    let result = sqlx::query("UPDATE channels SET name=COALESCE($1,name),base_url=COALESCE($2,base_url),priority=COALESCE($3,priority),models=COALESCE($4,models),model_mode=COALESCE($5,model_mode),test_model=CASE WHEN $11 THEN $8 ELSE test_model END,model_mapping=COALESCE($9,model_mapping),enabled=COALESCE($10,enabled),updated_at=now() WHERE id=$6 AND account_id=$7")
+    let result = sqlx::query("UPDATE channels SET name=COALESCE($1,name),base_url=COALESCE($2,base_url),priority=COALESCE($3,priority),models=COALESCE($4,models),model_mode=COALESCE($5,model_mode),test_model=CASE WHEN $11 THEN $8 ELSE test_model END,model_mapping=COALESCE($9,model_mapping),enabled=COALESCE($10,enabled),concurrency_limit=CASE WHEN $12 THEN $13 ELSE concurrency_limit END,updated_at=now() WHERE id=$6 AND account_id=$7")
         .bind(name)
         .bind(&base_url)
         .bind(input.priority)
@@ -2502,6 +2557,8 @@ async fn update_channel(
         .bind(&mapping)
         .bind(input.enabled)
         .bind(test_model.is_some())
+        .bind(input.concurrency_limit.is_some())
+        .bind(input.concurrency_limit.flatten())
         .execute(&mut *transaction)
         .await?;
     if result.rows_affected() == 0 {
@@ -2576,7 +2633,7 @@ async fn update_channel(
         "channel.updated",
         "channel",
         channel_id,
-        json!({"models_updated": models.is_some(), "mapping_updated": mapping.is_some(), "credential_updated": encrypted.is_some(), "enabled": input.enabled}),
+        json!({"models_updated": models.is_some(), "mapping_updated": mapping.is_some(), "credential_updated": encrypted.is_some(), "enabled": input.enabled, "concurrency_limit": input.concurrency_limit}),
     )
     .await;
     Ok(Json(json!({"channel_id": channel_id})))
@@ -2619,6 +2676,9 @@ async fn create_channel(
     if input.priority.is_some_and(|priority| priority < 0) {
         return Err(AppError::BadRequest("priority must be non-negative".into()));
     }
+    if let Some(limit) = input.concurrency_limit {
+        validate_channel_concurrency(limit)?;
+    }
     let check = input
         .check_receipt
         .as_deref()
@@ -2641,8 +2701,8 @@ async fn create_channel(
     let encrypted = state.crypto.encrypt(secret).map_err(AppError::Internal)?;
     let mut tx = state.db.begin().await?;
     reserve_channel_slot(&mut tx, user.account_id, limits.channel_limit).await?;
-    let row = sqlx::query("INSERT INTO channels(account_id,name,protocol,base_url,priority,models,model_mode,test_model,provider) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id")
-        .bind(user.account_id).bind(input.name.trim()).bind(&input.protocol).bind(input.base_url.trim()).bind(input.priority.unwrap_or(100)).bind(json!(models)).bind(model_mode).bind(test_model).bind(&input.provider).fetch_one(&mut *tx).await?;
+    let row = sqlx::query("INSERT INTO channels(account_id,name,protocol,base_url,priority,models,model_mode,test_model,provider,concurrency_limit) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id")
+        .bind(user.account_id).bind(input.name.trim()).bind(&input.protocol).bind(input.base_url.trim()).bind(input.priority.unwrap_or(100)).bind(json!(models)).bind(model_mode).bind(test_model).bind(&input.provider).bind(input.concurrency_limit).fetch_one(&mut *tx).await?;
     let channel_id: Uuid = sqlx::Row::try_get(&row, "id")
         .map_err(|_| AppError::Internal("invalid channel row".into()))?;
     sqlx::query("INSERT INTO channel_monitor_configs(channel_id) VALUES ($1) ON CONFLICT(channel_id) DO NOTHING")
@@ -2666,7 +2726,7 @@ async fn create_channel(
         "channel.created",
         "channel",
         channel_id,
-        json!({"protocol":input.protocol,"provider":input.provider}),
+        json!({"protocol":input.protocol,"provider":input.provider,"concurrency_limit":input.concurrency_limit}),
     )
     .await;
     Ok(Json(json!({"id":channel_id})))
@@ -2686,6 +2746,7 @@ async fn delete_channel(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    state.forget_semaphore(id).await;
     audit(
         &state.db,
         user.account_id,

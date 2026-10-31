@@ -116,6 +116,8 @@ struct Candidate {
     secret: String,
     health: ChannelHealth,
     cooldown: crate::routing::Cooldown,
+    /// Requests in flight through the channel at once; `None` means no cap.
+    concurrency_limit: Option<i32>,
 }
 
 /// A channel's availability state and the routing settings that go with it.
@@ -737,6 +739,57 @@ async fn handle_inner(state: AppState, request: Request<Body>) -> Result<Respons
                 });
                 continue;
             }
+            let hops = |chain: &RelayChain| {
+                chain
+                    .served(candidate.channel_id)
+                    .iter()
+                    .map(|(relay, channel)| (relay.source.account_id, *channel))
+                    .collect()
+            };
+            // A full channel is passed over while another remains; the last
+            // one is waited for up to its first token timeout.
+            let channel_permit = match candidate.concurrency_limit {
+                None => None,
+                Some(limit) => {
+                    let semaphore = state
+                        .semaphore(candidate.channel_id, limit.max(1) as usize)
+                        .await;
+                    match std::sync::Arc::clone(&semaphore).try_acquire_owned() {
+                        Ok(permit) => Some(permit),
+                        Err(_) => {
+                            let waited = Instant::now();
+                            let wait = health.first_token_timeout;
+                            let acquired = if has_next {
+                                None
+                            } else {
+                                tokio::time::timeout(wait, semaphore.acquire_owned())
+                                    .await
+                                    .ok()
+                                    .and_then(|permit| permit.ok())
+                            };
+                            if acquired.is_none() {
+                                timings.full(channel_id, hops(&chain), waited);
+                                if !has_next {
+                                    last_channel = Some(channel_id);
+                                    last_relayed_event = None;
+                                    last_status = StatusCode::SERVICE_UNAVAILABLE;
+                                    last_body = json!({"error": {
+                                        "type": "channel_full",
+                                        "message": format!(
+                                            "渠道并发已满（上限 {limit}），等待 {} 秒仍无空闲名额，请稍后重试",
+                                            wait.as_secs()
+                                        ),
+                                    }})
+                                    .to_string()
+                                    .into_bytes();
+                                }
+                                continue;
+                            }
+                            acquired
+                        }
+                    }
+                }
+            };
             last_channel = Some(channel_id);
             last_relayed_event = None;
             sent = true;
@@ -775,13 +828,7 @@ async fn handle_inner(state: AppState, request: Request<Body>) -> Result<Respons
                     );
                 }
             }
-            timings.begin(
-                channel_id,
-                relayed
-                    .iter()
-                    .map(|(relay, channel)| (relay.source.account_id, *channel))
-                    .collect(),
-            );
+            timings.begin(channel_id, hops(&chain));
             // A stream with no output in time fails over while another channel
             // remains; the last one waits for the upstream timeout instead.
             let first_token_deadline = (is_stream && has_next)
@@ -925,6 +972,7 @@ async fn handle_inner(state: AppState, request: Request<Body>) -> Result<Respons
                         .await;
                 timings.save(&state, &events).await;
                 let mut permits: Vec<_> = permit.take().into_iter().collect();
+                permits.extend(channel_permit);
                 permits.extend(chain.take_permits());
                 let mut output = Response::builder().status(status);
                 copy_response_headers(&mut output, &response_headers);
@@ -1590,7 +1638,7 @@ async fn load_ranked_candidates(
     channels: Option<&[Uuid]>,
 ) -> Result<Vec<(Rank, Candidate)>> {
     let rows = sqlx::query(&format!(
-        "SELECT {HEALTH_COLUMNS}, c.id AS channel_id, c.priority AS channel_priority, c.base_url, c.protocol, \
+        "SELECT {HEALTH_COLUMNS}, c.id AS channel_id, c.priority AS channel_priority, c.base_url, c.protocol, c.concurrency_limit, \
          COALESCE(c.model_mapping ->> $2, r.upstream_model, $2) AS upstream_model, ck.secret_ciphertext, \
          c.models,c.model_mode,(r.upstream_model IS NOT NULL OR c.model_mapping ? $2) AS explicit_mapping, \
          (COALESCE(qm.route_policy='deprioritize' AND qm.status='degraded' AND qm.valid_until>now(),false) \
@@ -1661,6 +1709,9 @@ async fn load_ranked_candidates(
                 secret,
                 health,
                 cooldown: crate::routing::Cooldown::default(),
+                concurrency_limit: row
+                    .try_get("concurrency_limit")
+                    .map_err(|_| AppError::Internal("invalid channel".into()))?,
             },
         ));
     }

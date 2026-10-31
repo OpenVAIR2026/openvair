@@ -336,6 +336,192 @@ async fn account(db: &PgPool) -> Uuid {
         .unwrap()
 }
 
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires isolated PostgreSQL; use scripts/test-model-management.sh"]
+async fn full_channels_are_passed_over_and_the_last_is_waited_for(db: PgPool) {
+    let (state, server) = state(db.clone()).await;
+    let own = account(&db).await;
+    let first = channel(&state, own, 10, "passthrough", json!([]), "").await;
+    let second = channel(&state, own, 20, "passthrough", json!([]), "").await;
+    for id in [first, second] {
+        sqlx::query("UPDATE channels SET concurrency_limit=1,first_token_timeout_seconds=1 WHERE id=$1 AND account_id=$2")
+            .bind(id)
+            .bind(own)
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    let (key_id, raw) = key(&db, own, "all", json!([])).await;
+    sqlx::query("UPDATE virtual_api_keys SET concurrency_limit=10 WHERE id=$1")
+        .bind(key_id)
+        .execute(&db)
+        .await
+        .unwrap();
+    let attempts = || async {
+        sqlx::query_as::<_, (i32, Value)>(
+            "SELECT status,request_diagnostics->'attempts' FROM usage_events WHERE account_id=$1 AND virtual_key_id=$2 ORDER BY created_at DESC LIMIT 1")
+            .bind(own).bind(key_id).fetch_one(&db).await.unwrap()
+    };
+    let outcomes = |attempts: &Value| -> Vec<(String, String)> {
+        attempts
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| {
+                (
+                    a["channel_id"].as_str().unwrap().to_owned(),
+                    a["outcome"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    };
+
+    // The first channel is full, so the request goes to the second.
+    let held = state
+        .semaphore(first, 1)
+        .await
+        .acquire_owned()
+        .await
+        .unwrap();
+    assert_eq!(state.in_use(first).await, 1);
+    let response = handle_inner(state.clone(), request(&raw, "fixture", false))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let (_, recorded) = attempts().await;
+    assert_eq!(
+        outcomes(&recorded),
+        [
+            (first.to_string(), "channel_full".to_owned()),
+            (second.to_string(), "success".to_owned())
+        ]
+    );
+    // The permit was released with the finished response.
+    assert_eq!(state.in_use(second).await, 0);
+
+    // Both full: the last channel is waited for and used once it frees up.
+    let held_second = state
+        .semaphore(second, 1)
+        .await
+        .acquire_owned()
+        .await
+        .unwrap();
+    let release = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        drop(held_second);
+    });
+    let response = handle_inner(state.clone(), request(&raw, "fixture", false))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    release.await.unwrap();
+
+    // Still full after the first token timeout: a 503 naming the limit.
+    let _held_second = state
+        .semaphore(second, 1)
+        .await
+        .acquire_owned()
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let response = handle_inner(state.clone(), request(&raw, "fixture", false))
+        .await
+        .unwrap();
+    assert!(started.elapsed() >= std::time::Duration::from_secs(1));
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("渠道并发已满"));
+    let (status, recorded) = attempts().await;
+    assert_eq!(status, 503);
+    assert_eq!(
+        outcomes(&recorded),
+        [
+            (first.to_string(), "channel_full".to_owned()),
+            (second.to_string(), "channel_full".to_owned())
+        ]
+    );
+
+    // A streamed response holds its permit until the stream ends.
+    drop(held);
+    drop(_held_second);
+    let response = handle_inner(state.clone(), request(&raw, "fixture", true))
+        .await
+        .unwrap();
+    assert_eq!(state.in_use(first).await, 1);
+    to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    for _ in 0..200 {
+        if state.in_use(first).await == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(state.in_use(first).await, 0);
+    server.abort();
+}
+
+#[sqlx::test(migrations = "./migrations")]
+#[ignore = "requires isolated PostgreSQL; use scripts/test-model-management.sh"]
+async fn channel_concurrency_limits_are_validated_cleared_and_shown_per_account(db: PgPool) {
+    let (state, server) = state(db.clone()).await;
+    let own = account(&db).await;
+    let other = account(&db).await;
+    let id = channel(&state, own, 10, "passthrough", json!([]), "").await;
+    let own_headers = headers(&db, own, false).await;
+    let other_headers = headers(&db, other, false).await;
+    let stored = || async {
+        sqlx::query_scalar::<_, Option<i32>>("SELECT concurrency_limit FROM channels WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db)
+            .await
+            .unwrap()
+    };
+    for invalid in [0, 10001] {
+        assert!(matches!(
+            patch_channel(
+                &state,
+                &own_headers,
+                id,
+                json!({"concurrency_limit": invalid})
+            )
+            .await,
+            Err(AppError::BadRequest(_))
+        ));
+    }
+    assert!(matches!(
+        patch_channel(&state, &other_headers, id, json!({"concurrency_limit": 3})).await,
+        Err(AppError::NotFound)
+    ));
+    patch_channel(&state, &own_headers, id, json!({"concurrency_limit": 3}))
+        .await
+        .unwrap();
+    assert_eq!(stored().await, Some(3));
+    // Other fields leave the limit alone.
+    patch_channel(&state, &own_headers, id, json!({"name": "renamed"}))
+        .await
+        .unwrap();
+    assert_eq!(stored().await, Some(3));
+
+    let _held = state.semaphore(id, 3).await.acquire_owned().await.unwrap();
+    let crate::Json(own_view) =
+        crate::channel_concurrency(State(state.clone()), own_headers.clone())
+            .await
+            .unwrap();
+    assert_eq!(
+        serde_json::to_value(own_view).unwrap(),
+        json!([{"channel_id": id, "in_use": 1, "limit": 3}])
+    );
+    let crate::Json(other_view) = crate::channel_concurrency(State(state.clone()), other_headers)
+        .await
+        .unwrap();
+    assert!(other_view.is_empty());
+
+    patch_channel(&state, &own_headers, id, json!({"concurrency_limit": null}))
+        .await
+        .unwrap();
+    assert_eq!(stored().await, None);
+    server.abort();
+}
+
 async fn channel(
     state: &AppState,
     account: Uuid,

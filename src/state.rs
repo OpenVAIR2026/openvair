@@ -12,7 +12,8 @@ use std::{
 use tokio::sync::{Mutex, OnceCell, Semaphore};
 use uuid::Uuid;
 
-/// Each key's concurrency limiter with the limit it was built for.
+/// Each key's or channel's concurrency limiter with the limit it was built for.
+/// Keys and channels share the map; their ids never collide.
 pub type Semaphores = HashMap<Uuid, (Arc<Semaphore>, usize)>;
 
 #[derive(Clone)]
@@ -50,7 +51,19 @@ impl AppState {
         Arc::clone(semaphore)
     }
 
-    /// Drops the limiter of a key that will not be used again.
+    /// Requests holding a permit on the current limiter. Permits on a limiter
+    /// replaced by a changed limit are not counted.
+    pub async fn in_use(&self, id: Uuid) -> usize {
+        self.semaphores
+            .lock()
+            .await
+            .get(&id)
+            .map_or(0, |(semaphore, limit)| {
+                limit.saturating_sub(semaphore.available_permits())
+            })
+    }
+
+    /// Drops the limiter of a key or channel that will not be used again.
     pub async fn forget_semaphore(&self, key_id: Uuid) {
         self.semaphores.lock().await.remove(&key_id);
     }

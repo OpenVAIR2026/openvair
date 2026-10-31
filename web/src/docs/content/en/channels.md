@@ -18,6 +18,7 @@
 | Base URL | Trailing `/v1` optional |
 | Upstream API key (上游 API Key) | Stored encrypted; no client can retrieve it |
 | Channel priority (渠道优先级) | Lower goes first; default 100. See [failover](/docs/routing) |
+| Concurrency limit (并发上限) | Optional. Requests in flight through this channel, streams included; blank means no limit |
 | Model rules (模型规则) | See [Model names and mapping](/docs/models) |
 | Test model (测试模型) | For tests and health checks; blank picks one |
 
@@ -53,6 +54,8 @@ Sends a real request asking for 1 output token; the cost is tiny. A result is va
 | Pending check (待检查) | Settings just changed; not checked yet |
 | Test model needed (需测试模型) | Only prefix rules or Forward all; set a test model |
 | Disabled (已停用) | Disabled manually |
+
+Channels with a concurrency limit show `in flight / limit` in the **Concurrency** (并发) column, refreshed every 3 seconds. A full channel is passed over for the next candidate; if it's the last one, the request waits up to that channel's first-token timeout (default 100 seconds), then returns 503 `channel_full`, shown as 渠道并发已满 in request details.
 
 Click **Check** (检查) to check now; new channels are checked every 30 minutes by default. For judgment rules, frequency and failure count, see [Availability monitoring](/docs/monitoring#availability-monitoring).
 

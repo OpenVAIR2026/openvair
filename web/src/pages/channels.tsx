@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Pencil, Plus, Power, ShieldCheck, Trash2 } from 'lucide-react'
-import { api, formatDate, formatShortDate, jsonBody, type Channel } from '../lib/api'
+import { api, formatDate, formatShortDate, jsonBody, type Channel, type ChannelConcurrency } from '../lib/api'
 import { queryClient, refreshModels, useChannels, useUser } from '../lib/queries'
 import { Button } from '../components/ui/button'
 import { Badge, Confirm, DataTable, Empty, ErrorBox, Health, Loading, PageHeader } from '../components/common'
@@ -20,6 +20,8 @@ function ChannelHealth({ channel, checking }: { channel: Channel; checking: bool
   </div>
 }
 
+const host = (url: string) => { try { return new URL(url).host } catch { return url } }
+
 export function ChannelsPage() {
   const user = useUser()
   const query = useChannels()
@@ -28,6 +30,9 @@ export function ChannelsPage() {
   const [open, setOpen] = useState(() => searchParams.has('add'))
   useEffect(() => { if (searchParams.has('add')) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete('add'); return next }, { replace: true }) }, [searchParams, setSearchParams])
   const [edit, setEdit] = useState<Channel | null>(null)
+  const capped = query.data?.some(channel => channel.concurrency_limit) ?? false
+  const concurrency = useQuery({ queryKey: ['channel-concurrency', user.account_id], queryFn: ({ signal }) => api<ChannelConcurrency[]>('/channels/concurrency', { signal }), enabled: capped, refetchInterval: 3000 })
+  const inUse = new Map(concurrency.data?.map(item => [item.channel_id, item.in_use]))
   const [remove, setRemove] = useState<Channel | null>(null)
   const refresh = async () => {
     await refreshModels()
@@ -39,10 +44,18 @@ export function ChannelsPage() {
   const show = () => { check.reset(); setOpen(true) }
   const showEditor = (channel: Channel) => { check.reset(); setEdit(channel) }
   return <><PageHeader title="上游渠道" description="接入已购买或获授权的 API。模型列表支持手动填写或一键获取，兼容渠道也可以全部转发。" action=<Button onClick={show}><Plus aria-hidden="true" />添加渠道</Button> /><ErrorBox error={query.error} retry={() => query.refetch()} /><ErrorBox error={toggle.error} /><ErrorBox error={check.error} />{query.isPending ? <Loading /> : !query.isError && <DataTable data={query.data ?? []} columns={[
-    { accessorKey: 'name', header: '渠道', cell: ({ row }) => <span className="inline-flex items-center gap-1.5 font-medium">{row.original.name}{row.original.kind === 'vair_key' && <Badge>VAIR</Badge>}</span> },
+    { accessorKey: 'name', header: '渠道', cell: ({ row }) => <div className="grid gap-0.5">
+      <span className="inline-flex items-center gap-1.5 font-medium">{row.original.name}{row.original.kind === 'vair_key' && <Badge>VAIR</Badge>}</span>
+      {row.original.kind === 'vair_key' ? <span className="block max-w-[220px] truncate text-xs text-muted-foreground">来自 {row.original.source?.account_name ?? '已撤销的 Key'}</span> : <span className="block max-w-[220px] truncate text-xs text-muted-foreground" title={row.original.base_url}>{host(row.original.base_url)}</span>}
+    </div> },
     { accessorKey: 'protocol', header: '协议', cell: ({ row }) => <Badge>{row.original.protocol === 'any' ? '全部协议' : row.original.protocol}</Badge> },
-    { accessorKey: 'base_url', header: 'Base URL', cell: ({ row }) => row.original.kind === 'vair_key' ? <span className="block max-w-[180px] truncate text-xs text-muted-foreground">来自 {row.original.source?.account_name ?? '已撤销的 Key'}</span> : <code className="block max-w-[180px] truncate text-xs text-muted-foreground" title={row.original.base_url}>{row.original.base_url}</code> },
     { accessorKey: 'priority', header: '优先级' },
+    { accessorKey: 'concurrency_limit', header: '并发', cell: ({ row }) => {
+      const limit = row.original.concurrency_limit
+      if (!limit) return <span className="text-xs text-muted-foreground">不限</span>
+      const used = inUse.get(row.original.id) ?? 0
+      return <span className={`tabular-nums ${used >= limit ? 'font-medium text-destructive' : ''}`} title={used >= limit ? '已满，新请求会改用下一个渠道' : undefined}>{used} / {limit}</span>
+    } },
     { accessorKey: 'model_count', header: '模型范围', cell: ({ row }) => row.original.kind === 'vair_key' ? <ModelScope rules={row.original.source?.allowed_models ?? []} mode={row.original.source?.model_mode ?? 'all'} known={row.original.source?.models ?? []} kind="当前可用" /> : <ModelScope rules={row.original.models} mode={row.original.model_mode} known={row.original.known_models} /> },
     { accessorKey: 'health_status', header: '健康状态', cell: ({ row }) => <ChannelHealth channel={row.original} checking={check.isPending && check.variables === row.original.id} /> },
     { id: 'actions', header: '操作', cell: ({ row }) => <div className="flex items-center gap-1"><Button variant="ghost" size="sm" disabled={check.isPending || toggle.isPending} onClick={() => check.mutate(row.original.id)}>{check.isPending && check.variables === row.original.id ? <LoaderCircle aria-hidden="true" className="size-4 animate-spin" /> : <ShieldCheck aria-hidden="true" className="size-4" />}{check.isPending && check.variables === row.original.id ? '检查中…' : '检查'}</Button><Button variant="ghost" size="icon" aria-label={`${row.original.enabled ? '停用' : '启用'}渠道 ${row.original.name}`} title={row.original.enabled ? '停用' : '启用'} disabled={toggle.isPending} onClick={() => toggle.mutate({ id: row.original.id, enabled: !row.original.enabled })}><Power className={row.original.enabled ? 'size-4' : 'size-4 text-success'} /></Button><Button variant="ghost" size="sm" onClick={() => showEditor(row.original)}><Pencil className="size-4" />编辑</Button><Button variant="ghost" size="icon" aria-label={`删除渠道 ${row.original.name}`} onClick={() => { deletion.reset(); setRemove(row.original) }}><Trash2 className="size-4 text-destructive" /></Button></div> },

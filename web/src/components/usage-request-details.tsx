@@ -7,7 +7,7 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTi
 
 const outcomes: Record<RequestOutcome, string> = {
   pending: '响应中', success: '已完成', http_error: '上游错误', timeout: '连接或响应超时',
-  first_token_timeout: '首字超时，已切换渠道', connection_error: '连接或发送失败', stream_error: '响应中断', client_disconnected: '客户端断开', unavailable: '渠道不可用',
+  first_token_timeout: '首字超时，已切换渠道', connection_error: '连接或发送失败', stream_error: '响应中断', client_disconnected: '客户端断开', unavailable: '渠道不可用', channel_full: '渠道并发已满',
 }
 const ms = (value: number | null | undefined) => value == null ? '未采集' : value >= 1000 ? `${(value / 1000).toFixed(3)} s` : `${value} ms`
 const tokens = (value: number | null) => value == null ? '未上报' : value.toLocaleString('zh-CN')

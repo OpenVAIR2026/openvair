@@ -15,6 +15,7 @@ const channelShape = z.object({
   model_mode: z.enum(['allowlist', 'passthrough']),
   test_model: z.string().trim().refine(v => !v || isConcreteModel(v), '测试模型必须是具体名称'),
   priority,
+  concurrency_limit: z.string().trim().refine(v => !v || /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 10000, '请输入 1–10000 的整数或留空'),
   mappings: z.array(z.object({
     public_model: z.string().trim().refine(isConcreteModel, '请输入具体的对外模型名'),
     upstream_model: z.string().trim().refine(isConcreteModel, '请输入具体的上游模型名'),

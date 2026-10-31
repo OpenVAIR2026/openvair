@@ -62,6 +62,7 @@ fn input(protocol: &str, provider: Option<&str>) -> CreateChannelInput {
         secret: "sk-test-not-real".into(),
         check_receipt: None,
         provider: provider.map(Into::into),
+        concurrency_limit: None,
     }
 }
 
