@@ -6,7 +6,7 @@
 
 **One command to deploy. Paste a key and you're set.**
 
-A self-hosted AI gateway for teams: Claude Code, Codex, Gemini CLI and other coding agents run on your own model channels.
+A minimal open-source AI gateway with its own desktop client: Claude Code, Codex, Gemini CLI and other coding agents run on your own model channels.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-0b171c?style=flat-square)](LICENSE)
 [![Desktop: Apache-2.0](https://img.shields.io/badge/desktop-Apache--2.0-173238?style=flat-square)](client/LICENSE)

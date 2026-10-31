@@ -15,11 +15,11 @@ export function pathIn(lang: Lang, pathname: string) {
 
 const zh = {
   htmlLang: 'zh-CN',
-  siteTitle: 'OpenVAIR · 自部署的 AI 网关',
+  siteTitle: 'OpenVAIR · 自带桌面客户端的极简开源 AI 网关',
   skip: '跳到主要内容',
   nav: { home: '首页', deploy: '部署', docs: '文档', download: '下载', label: '站点导航', homeLabel: 'OpenVAIR 首页', openMenu: '打开菜单', closeMenu: '关闭菜单', switchLabel: '切换语言' },
   footer: {
-    tagline: '面向小团队和课题组的自部署 AI 网关。',
+    tagline: '自带桌面客户端的极简开源 AI 网关，面向小团队和课题组。',
     product: '产品', deploy: '部署', desktop: '桌面客户端', comparison: '同类对比',
     docs: '文档', quickstart: '快速开始', troubleshooting: '问题排查',
     community: '社区', issues: '反馈问题', security: '安全报告',
@@ -35,7 +35,7 @@ const zh = {
   home: {
     title: ['一条命令完成部署，', '即可使用'],
     titleEm: '填入 Key',
-    lead: '团队共用的自部署 AI 网关，统一管理 Key、限额和用量。',
+    lead: '自带桌面客户端的极简开源 AI 网关，统一管理团队的 Key、限额和用量。',
     deploy: '部署到服务器', download: '下载桌面客户端',
     simple: {
       kicker: '设计理念：极简，易用',
@@ -115,11 +115,11 @@ export type Strings = typeof zh
 
 const en: Strings = {
   htmlLang: 'en',
-  siteTitle: 'OpenVAIR · Self-hosted AI gateway',
+  siteTitle: 'OpenVAIR · Minimal open-source AI gateway with a desktop client',
   skip: 'Skip to main content',
   nav: { home: 'Home', deploy: 'Deploy', docs: 'Docs', download: 'Download', label: 'Site navigation', homeLabel: 'OpenVAIR home', openMenu: 'Open menu', closeMenu: 'Close menu', switchLabel: 'Change language' },
   footer: {
-    tagline: 'The self-hosted AI gateway for small teams and research groups.',
+    tagline: 'A minimal open-source AI gateway with a desktop client, for small teams and research groups.',
     product: 'Product', deploy: 'Deploy', desktop: 'Desktop app', comparison: 'Comparison',
     docs: 'Docs', quickstart: 'Quick start', troubleshooting: 'Troubleshooting',
     community: 'Community', issues: 'Report an issue', security: 'Security',
@@ -135,7 +135,7 @@ const en: Strings = {
   home: {
     title: ['One-command deploy.', 'and go.'],
     titleEm: 'Paste a key',
-    lead: 'A self-hosted AI gateway for teams: keys, limits and usage.',
+    lead: 'A minimal open-source AI gateway with a desktop client: keys, limits and usage for your team.',
     deploy: 'Deploy on your server', download: 'Get the desktop app',
     simple: {
       kicker: 'Design: simple, easy',

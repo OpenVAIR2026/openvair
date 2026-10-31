@@ -8,8 +8,8 @@ const repo = fileURLToPath(new URL('..', import.meta.url))
 const ORIGIN = 'https://openvair.com'
 
 const english = {
-  title: 'OpenVAIR · Self-hosted AI gateway',
-  description: 'OpenVAIR is a self-hosted AI gateway for small teams and research groups. Deploy it with one command; Claude Code, Codex and Gemini CLI connect to it with one key per person, using your own model channels.',
+  title: 'OpenVAIR · Minimal open-source AI gateway with a desktop client',
+  description: 'OpenVAIR is a minimal open-source AI gateway with a desktop client, for small teams and research groups. Deploy it with one command; Claude Code, Codex and Gemini CLI connect to it with one key per person, using your own model channels.',
 }
 
 /**

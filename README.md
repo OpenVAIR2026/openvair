@@ -6,7 +6,7 @@
 
 **一条命令搭好，粘贴一把 Key 就能用。**
 
-团队自部署的 AI 网关，让 Claude Code、Codex、Gemini CLI 等编程 Agent 使用你自己的模型渠道。
+自带桌面客户端的极简开源 AI 网关，让 Claude Code、Codex、Gemini CLI 等编程 Agent 使用你自己的模型渠道。
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-0b171c?style=flat-square)](LICENSE)
 [![Desktop: Apache-2.0](https://img.shields.io/badge/desktop-Apache--2.0-173238?style=flat-square)](client/LICENSE)
