@@ -11,7 +11,7 @@ General Public License, version 3 only (SPDX: AGPL-3.0-only). See LICENSE.
 
 Exceptions:
 
-- client/ (the VAIR desktop client and its vair-core library) is licensed
+- client/ (the OpenVAIR desktop client and its openvair-core library) is licensed
   under the Apache License, version 2.0 (SPDX: Apache-2.0). See
   client/LICENSE.
 
