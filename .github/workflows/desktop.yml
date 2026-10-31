@@ -1,0 +1,69 @@
+name: Desktop
+
+# Builds the desktop client for macOS (universal), Windows and Linux and
+# attaches the installers to the GitHub release of the tag. The installers are
+# not notarized or code-signed; the desktop docs explain how to open them.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload to, e.g. v0.1.0
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            args: --target universal-apple-darwin
+          - runner: windows-latest
+            args: ""
+          - runner: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ startsWith(matrix.runner, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client
+      - if: startsWith(matrix.runner, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev pkg-config
+      # The installers carry the release version: v0.1.0 → 0.1.0.
+      - shell: bash
+        working-directory: client
+        run: |
+          version="${TAG#v}"
+          node -e 'const fs=require("fs");const p="src-tauri/tauri.conf.json";const c=JSON.parse(fs.readFileSync(p));c.version=process.argv[1];fs.writeFileSync(p,JSON.stringify(c,null,2)+"\n")' "$version"
+      - run: npm ci
+        working-directory: client
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: client
+          tagName: ${{ env.TAG }}
+          releaseName: OpenVAIR ${{ env.TAG }}
+          releaseDraft: false
+          args: ${{ matrix.args }}
